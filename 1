@@ -1,84 +1,139 @@
-#include <iostream>
-#include <fstream>
-#include <string>
-#include <sys/utsname.h>
-#include <sys/statvfs.h>
-#include <sys/sysinfo.h>
-#include <mntent.h>
-#include <unistd.h>
-#include <pwd.h>
-#include <cstdio>
-#include <iomanip>
+#include <windows.h>
 
+#include <iomanip>
+#include <iostream>
+#include <string>
+#include <vector>
 
 void SetRussianLocale() {
-    std::setlocale(LC_ALL, "ru_RU.UTF-8");
+  SetConsoleOutputCP(1251);
+  SetConsoleCP(1251);
+  std::setlocale(LC_ALL, "Russian");
+}
+
+// Функция для получения информации о дисках
+void PrintDrivesInfo() {
+  std::cout << "Жесткие диски:" << std::endl;
+
+  // Получаем строку с перечнем всех дисков
+  char driveStrings[256];
+  if (GetLogicalDriveStringsA(sizeof(driveStrings) - 1, driveStrings) == 0) {
+    std::cout << "  Ошибка получения списка дисков" << std::endl;
+    return;
+  }
+
+  // Парсим строку с дисками
+  char* drivePtr = driveStrings;
+  while (*drivePtr) {
+    std::string driveLetter = drivePtr;
+
+    // Получаем информацию о свободном месте
+    ULARGE_INTEGER  totalBytes, totalFreeBytes;
+    if (GetDiskFreeSpaceExA(driveLetter.c_str(), NULL,&totalBytes,
+                            &totalFreeBytes)) {
+      // Конвертируем байты в гигабайты
+      double totalGB =
+          static_cast<double>(totalBytes.QuadPart) / (1024 * 1024 * 1024);
+      double freeGB =
+          static_cast<double>(totalFreeBytes.QuadPart) / (1024 * 1024 * 1024);
+      double usedGB = totalGB - freeGB;
+
+      // Выводим информацию о диске
+      std::cout << "  " << driveLetter << " - ";
+      std::cout << std::fixed << std::setprecision(1) << usedGB << " ГБ / "
+                << totalGB << " ГБ";
+      std::cout << " (" << freeGB << " ГБ свободно)" << std::endl;
+
+    } else {
+      std::cout << "  " << driveLetter << " - недоступен" << std::endl;
+    }
+
+    // Переходим к следующему диску
+    drivePtr += driveLetter.length() + 1;
+  }
 }
 
 int main() {
-    SetRussianLocale();
-    
-    std::cout << "=== Простая информация о системе Linux ===" << std::endl;
+  // Устанавливаем русскую локаль в начале программы
+  SetRussianLocale();
 
-    // 1. Информация о системе
-    struct utsname uts;
-    if (uname(&uts) == 0) {
-        std::cout << "Система: " << uts.sysname << std::endl;
-        std::cout << "Версия: " << uts.release << std::endl;
-        std::cout << "Архитектура: " << uts.machine << std::endl;
-    }
+  std::cout << "=== Простая информация о системе ===" << std::endl;
 
-    // 2. Имя хоста и пользователя
-    char hostname[256];
-    if (gethostname(hostname, sizeof(hostname)) == 0) {
-        std::cout << "Имя хоста: " << hostname << std::endl;
-    }
+  // 1. Имя компьютера
+  char computerName[MAX_COMPUTERNAME_LENGTH + 1];
+  DWORD size = sizeof(computerName);
+  if (GetComputerNameA(computerName, &size)) {
+    std::cout << "Имя компьютера: " << computerName << std::endl;
+  } else {
+    std::cout << "Ошибка получения имени компьютера" << std::endl;
+  }
 
-    struct passwd* pw = getpwuid(getuid());
-    if (pw) {
-        std::cout << "Пользователь: " << pw->pw_name << std::endl;
-    }
+  // 2. Имя пользователя
+  char userName[256];
+  DWORD userNameSize = sizeof(userName);
+  if (GetUserNameA(userName, &userNameSize)) {
+    std::cout << "Пользователь: " << userName << std::endl;
+  } else {
+    std::cout << "Ошибка получения имени пользователя" << std::endl;
+  }
 
-    // 3. Память
-    struct sysinfo si;
-    if (sysinfo(&si) == 0) {
-        unsigned long totalRAM = si.totalram / (1024 * 1024); // МБ
-        unsigned long freeRAM = si.freeram / (1024 * 1024);   // МБ
-        
-        std::cout << "Оперативная память: " << totalRAM << " МБ" << std::endl;
-        std::cout << "Свободно памяти: " << freeRAM << " МБ" << std::endl;
-    }
+  // 3. Информация о процессоре
+  SYSTEM_INFO systemInfo;
+  GetSystemInfo(&systemInfo);
+  std::cout << "Количество процессоров: " << systemInfo.dwNumberOfProcessors
+            << std::endl;
 
-    // 4. Процессоры
-    long processors = sysconf(_SC_NPROCESSORS_ONLN);
-    if (processors > 0) {
-        std::cout << "Процессоры: " << processors << std::endl;
-    }
+  // 4. Архитектура
+  std::cout << "Архитектура: ";
+  switch (systemInfo.wProcessorArchitecture) {
+    case PROCESSOR_ARCHITECTURE_AMD64:
+      std::cout << "x64" << std::endl;
+      break;
+    case PROCESSOR_ARCHITECTURE_INTEL:
+      std::cout << "x86" << std::endl;
+      break;
+    case PROCESSOR_ARCHITECTURE_ARM:
+      std::cout << "ARM" << std::endl;
+      break;
+    case PROCESSOR_ARCHITECTURE_ARM64:
+      std::cout << "ARM64" << std::endl;
+      break;
+    default:
+      std::cout << "Неизвестно" << std::endl;
+  }
 
-            std::cout << "Диски:" << std::endl;
-    
-    FILE* mounts = setmntent("/proc/mounts", "r");
-    if (!mounts) {
-        std::cout << "Ошибка чтения информации о дисках" << std::endl;
-        return 1;
-    }
-    
-    struct mntent* entry;
-    while ((entry = getmntent(mounts)) != nullptr) {
-        // Берем только основные диски (корень и /mnt)
-        std::string mount_point = entry->mnt_dir;
-        if (mount_point == "/" || mount_point.find("/mnt/") == 0) {
-            struct statvfs vfs;
-            if (statvfs(entry->mnt_dir, &vfs) == 0) {
-                // Считаем размеры в ГБ
-                double total = (vfs.f_blocks * vfs.f_frsize) / (1024.0 * 1024 * 1024);
-                double free = (vfs.f_bfree * vfs.f_frsize) / (1024.0 * 1024 * 1024);
-                
-                std::cout << " " << mount_point << " " << entry->mnt_type;
-                std::cout << " " << std::fixed << std::setprecision(0) << free << " ГБ свободно / всего " << total << " ГБ" << std::endl;
-            }
-        }
-    }
-    endmntent(mounts);
-    return 0;
+  // 5. Память
+  MEMORYSTATUSEX memoryStatus;
+  memoryStatus.dwLength = sizeof(memoryStatus);
+  if (GlobalMemoryStatusEx(&memoryStatus)) {
+    DWORDLONG totalPhysMB = memoryStatus.ullTotalPhys / (1024 * 1024);  // МБ
+    DWORDLONG totalPhysGB =
+        memoryStatus.ullTotalPhys / (1024 * 1024 * 1024);  // ГБ
+
+    std::cout << "Оперативная память: " << totalPhysGB << " ГБ (" << totalPhysMB
+              << " МБ)" << std::endl;
+    std::cout << "Загрузка памяти: " << memoryStatus.dwMemoryLoad << "%"
+              << std::endl;
+
+    // Дополнительная информация о памяти
+    DWORDLONG availPhysMB = memoryStatus.ullAvailPhys / (1024 * 1024);
+    DWORDLONG usedPhysMB = totalPhysMB - availPhysMB;
+    std::cout << "Используется памяти: " << usedPhysMB << " МБ / "
+              << totalPhysMB << " МБ" << std::endl;
+
+    // Виртуальная память
+    DWORDLONG totalVirtualGB =
+        memoryStatus.ullTotalVirtual / (1024 * 1024 * 1024);
+    std::cout << "Виртуальная память: " << totalVirtualGB << " ГБ" << std::endl;
+  } else {
+    std::cout << "Ошибка получения информации о памяти" << std::endl;
+  }
+
+  // 6. Информация о дисках
+  PrintDrivesInfo();
+
+  std::cout << std::endl << "Нажмите Enter для выхода...";
+  std::cin.get();
+
+  return 0;
 }
