@@ -1,0 +1,84 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <sys/utsname.h>
+#include <sys/statvfs.h>
+#include <sys/sysinfo.h>
+#include <mntent.h>
+#include <unistd.h>
+#include <pwd.h>
+#include <cstdio>
+#include <iomanip>
+
+
+void SetRussianLocale() {
+    std::setlocale(LC_ALL, "ru_RU.UTF-8");
+}
+
+int main() {
+    SetRussianLocale();
+    
+    std::cout << "=== Простая информация о системе Linux ===" << std::endl;
+
+    // 1. Информация о системе
+    struct utsname uts;
+    if (uname(&uts) == 0) {
+        std::cout << "Система: " << uts.sysname << std::endl;
+        std::cout << "Версия: " << uts.release << std::endl;
+        std::cout << "Архитектура: " << uts.machine << std::endl;
+    }
+
+    // 2. Имя хоста и пользователя
+    char hostname[256];
+    if (gethostname(hostname, sizeof(hostname)) == 0) {
+        std::cout << "Имя хоста: " << hostname << std::endl;
+    }
+
+    struct passwd* pw = getpwuid(getuid());
+    if (pw) {
+        std::cout << "Пользователь: " << pw->pw_name << std::endl;
+    }
+
+    // 3. Память
+    struct sysinfo si;
+    if (sysinfo(&si) == 0) {
+        unsigned long totalRAM = si.totalram / (1024 * 1024); // МБ
+        unsigned long freeRAM = si.freeram / (1024 * 1024);   // МБ
+        
+        std::cout << "Оперативная память: " << totalRAM << " МБ" << std::endl;
+        std::cout << "Свободно памяти: " << freeRAM << " МБ" << std::endl;
+    }
+
+    // 4. Процессоры
+    long processors = sysconf(_SC_NPROCESSORS_ONLN);
+    if (processors > 0) {
+        std::cout << "Процессоры: " << processors << std::endl;
+    }
+
+            std::cout << "Диски:" << std::endl;
+    
+    FILE* mounts = setmntent("/proc/mounts", "r");
+    if (!mounts) {
+        std::cout << "Ошибка чтения информации о дисках" << std::endl;
+        return 1;
+    }
+    
+    struct mntent* entry;
+    while ((entry = getmntent(mounts)) != nullptr) {
+        // Берем только основные диски (корень и /mnt)
+        std::string mount_point = entry->mnt_dir;
+        if (mount_point == "/" || mount_point.find("/mnt/") == 0) {
+            struct statvfs vfs;
+            if (statvfs(entry->mnt_dir, &vfs) == 0) {
+                // Считаем размеры в ГБ
+                double total = (vfs.f_blocks * vfs.f_frsize) / (1024.0 * 1024 * 1024);
+                double free = (vfs.f_bfree * vfs.f_frsize) / (1024.0 * 1024 * 1024);
+                
+                std::cout << " " << mount_point << " " << entry->mnt_type;
+                std::cout << " " << std::fixed << std::setprecision(0) << free << " ГБ свободно / всего " << total << " ГБ" << std::endl;
+            }
+        }
+    }
+    endmntent(mounts);
+    return 0;
+}
